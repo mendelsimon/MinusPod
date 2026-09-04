@@ -868,6 +868,22 @@ AD_CHAPTER_RESUME_TITLE = os.environ.get('AD_CHAPTER_RESUME_TITLE', 'Show').stri
 # A generated chapter starting within this many seconds of an ad boundary is
 # reused as that boundary instead of inserting a near-duplicate next to it.
 AD_CHAPTER_SNAP_SECONDS = 2.0
+# Only mark segments the detector was at least this sure about.
+#
+# This is the precision gate for ad chapters, and it has to exist here because
+# nothing upstream provides one: a 'keep' action clears the marker's validator
+# hold (main_app/processing.py) and kept markers never enter the reviewer's
+# cut list, on the reasoning that a segment left in the audio can do no harm.
+# That reasoning holds right up until a player auto-skips the chapter, at
+# which point a false positive silently swallows real show content -- the
+# very outcome 'keep' was chosen to avoid.
+#
+# Defaults conservative: a missed ad is an annoyance, a skipped segment of the
+# show is lost content. Set 0.0 to mark every detection. Markers with no
+# confidence recorded are treated as confident, matching the convention in
+# processing.py's validation path.
+AD_CHAPTER_MIN_CONFIDENCE = float(
+    os.environ.get('AD_CHAPTER_MIN_CONFIDENCE', '0.9') or 0.9)
 
 
 def resolve_chapters_mode(podcast_row):

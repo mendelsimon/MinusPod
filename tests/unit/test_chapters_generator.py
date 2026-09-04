@@ -916,3 +916,73 @@ class TestMergeAdChapters:
                     'category': 'sponsor'}]
         topics = self._topics()
         assert merge_ad_chapters(topics, markers, [], self.DURATION) == topics
+
+
+class TestAdChapterConfidenceGate:
+    """Ad chapters are the last precision gate before a player acts on them.
+    A 'keep' action has already cleared the validator hold and skipped the
+    reviewer, so an unfiltered false positive becomes a silent auto-skip
+    over real show content."""
+
+    DURATION = 3600.0
+    TOPICS = [{'startTime': 1, 'title': 'Intro'}]
+
+    def _marker(self, **over):
+        m = {'start': 900.0, 'end': 960.0, 'action_applied': 'keep',
+             'category': 'sponsor'}
+        m.update(over)
+        return m
+
+    def _ads(self, result):
+        return [ch for ch in result if ch['title'].startswith('[Ad]')]
+
+    def test_low_confidence_marker_is_not_chapter_marked(self, monkeypatch):
+        monkeypatch.setattr('chapters_generator.AD_CHAPTER_MIN_CONFIDENCE', 0.9)
+        result = merge_ad_chapters(self.TOPICS, [self._marker(confidence=0.5)],
+                                   [], self.DURATION)
+        assert self._ads(result) == []
+        assert result == self.TOPICS
+
+    def test_high_confidence_marker_is_marked(self, monkeypatch):
+        monkeypatch.setattr('chapters_generator.AD_CHAPTER_MIN_CONFIDENCE', 0.9)
+        result = merge_ad_chapters(self.TOPICS, [self._marker(confidence=0.97)],
+                                   [], self.DURATION)
+        assert self._ads(result) == [{'startTime': 900, 'title': '[Ad] sponsor'}]
+
+    def test_marker_exactly_at_the_floor_is_marked(self, monkeypatch):
+        monkeypatch.setattr('chapters_generator.AD_CHAPTER_MIN_CONFIDENCE', 0.9)
+        result = merge_ad_chapters(self.TOPICS, [self._marker(confidence=0.9)],
+                                   [], self.DURATION)
+        assert len(self._ads(result)) == 1
+
+    def test_validator_adjusted_confidence_wins_over_raw(self, monkeypatch):
+        monkeypatch.setattr('chapters_generator.AD_CHAPTER_MIN_CONFIDENCE', 0.9)
+        marker = self._marker(confidence=0.99, adjusted_confidence=0.4)
+        assert self._ads(merge_ad_chapters(self.TOPICS, [marker], [],
+                                           self.DURATION)) == []
+
+    def test_missing_confidence_is_treated_as_confident(self, monkeypatch):
+        # Matches processing.py's ad.get('confidence', 1.0) convention.
+        monkeypatch.setattr('chapters_generator.AD_CHAPTER_MIN_CONFIDENCE', 0.9)
+        result = merge_ad_chapters(self.TOPICS, [self._marker()], [],
+                                   self.DURATION)
+        assert len(self._ads(result)) == 1
+
+    def test_unparseable_confidence_does_not_drop_the_marker(self, monkeypatch):
+        monkeypatch.setattr('chapters_generator.AD_CHAPTER_MIN_CONFIDENCE', 0.9)
+        marker = self._marker(confidence='high')
+        assert len(self._ads(merge_ad_chapters(self.TOPICS, [marker], [],
+                                                self.DURATION))) == 1
+
+    def test_zero_floor_marks_everything(self, monkeypatch):
+        monkeypatch.setattr('chapters_generator.AD_CHAPTER_MIN_CONFIDENCE', 0.0)
+        result = merge_ad_chapters(self.TOPICS, [self._marker(confidence=0.1)],
+                                   [], self.DURATION)
+        assert len(self._ads(result)) == 1
+
+    def test_filtered_marker_leaves_no_orphan_resume_chapter(self, monkeypatch):
+        # A dropped span must not leave its terminator behind.
+        monkeypatch.setattr('chapters_generator.AD_CHAPTER_MIN_CONFIDENCE', 0.9)
+        result = merge_ad_chapters(self.TOPICS, [self._marker(confidence=0.2)],
+                                   [], self.DURATION)
+        assert all(ch['title'] != 'Show' for ch in result)

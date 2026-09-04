@@ -8,7 +8,7 @@ from config import (
     normalize_segment_category, resolve_chapter_geometry,
     resolve_stage_tunables,
     AD_CHAPTERS_ENABLED, AD_CHAPTER_TITLE_PREFIX, AD_CHAPTER_RESUME_TITLE,
-    AD_CHAPTER_SNAP_SECONDS,
+    AD_CHAPTER_SNAP_SECONDS, AD_CHAPTER_MIN_CONFIDENCE,
 )
 from database import Database, DEFAULT_CHAPTER_PROMPT
 from utils.prompt import render_prompt_once, apply_override
@@ -178,6 +178,11 @@ def merge_ad_chapters(output_chapters: list[dict], markers: list[dict] | None,
     the next one starts, so without the terminator the ad chapter would
     swallow the rest of the episode.
 
+    Markers below AD_CHAPTER_MIN_CONFIDENCE are left unmarked: a player
+    that auto-skips these chapters turns a false positive into silently
+    lost show content, and the 'keep' action has already cleared the
+    validator hold and bypassed the reviewer by the time we get here.
+
     Generated topic chapters that fall strictly inside an ad span are
     dropped; they would split the span into pieces a player's keyword
     filter no longer matches as one break. A generated chapter within
@@ -198,6 +203,14 @@ def merge_ad_chapters(output_chapters: list[dict], markers: list[dict] | None,
         start, end = marker.get('start'), marker.get('end')
         if start is None or end is None:
             continue
+        # Validation may have revised the detector's own number; prefer it.
+        confidence = marker.get('adjusted_confidence',
+                                marker.get('confidence', 1.0))
+        try:
+            if float(confidence) < AD_CHAPTER_MIN_CONFIDENCE:
+                continue
+        except (TypeError, ValueError):
+            pass
         mapped_start = adjust_timestamp(start, cuts or [], replacement_duration)
         mapped_end = adjust_timestamp(end, cuts or [], replacement_duration)
         start_s = max(1, int(round(mapped_start)))
