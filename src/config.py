@@ -858,10 +858,32 @@ MIN_PRESERVED_CHAPTERS = 2
 # swallow the rest of the episode.
 AD_CHAPTERS_ENABLED = os.environ.get(
     'AD_CHAPTERS_ENABLED', 'false').strip().lower() == 'true'
-# Title prefix a player's keyword filter matches on (Podcast Addict's chapter
-# filter, or a patched AntennaPod build). Kept short and bracketed so it reads
-# cleanly in a chapter list.
-AD_CHAPTER_TITLE_PREFIX = os.environ.get('AD_CHAPTER_TITLE_PREFIX', '[Ad]').strip() or '[Ad]'
+# Title template for a marked segment's chapter. `{category}` is substituted
+# with the segment category (sponsor, cross_promo, self_promo, interaction,
+# intro, outro, recap), so a player can filter per category rather than
+# skipping every marker alike: a patched client matches the whole tag to find
+# every marker, or the category to act on one kind.
+#
+# The default is deliberately machine-shaped rather than pretty. A chapter
+# title is the only field Podcasting 2.0 gives us -- there is no field for
+# "this is an ad", let alone which kind -- so the title carries the structure.
+# A template without `{category}` is accepted and used verbatim; anything that
+# fails to format (a stray brace, an unknown placeholder) falls back to the
+# default rather than failing the run.
+AD_CHAPTER_TITLE_FORMAT = os.environ.get(
+    'AD_CHAPTER_TITLE_FORMAT', '[mp:{category}]').strip() or '[mp:{category}]'
+
+
+def format_ad_chapter_title(category: str) -> str:
+    """Render AD_CHAPTER_TITLE_FORMAT for one segment category.
+
+    Never raises: a malformed template must not take down chapter generation
+    for an otherwise-good episode, so it falls back to the default shape.
+    """
+    try:
+        return AD_CHAPTER_TITLE_FORMAT.format(category=category)
+    except (KeyError, IndexError, ValueError):
+        return f'[mp:{category}]'
 # Title for the resume chapter that terminates an ad chapter, used only when
 # no generated chapter already starts there.
 AD_CHAPTER_RESUME_TITLE = os.environ.get('AD_CHAPTER_RESUME_TITLE', 'Show').strip() or 'Show'

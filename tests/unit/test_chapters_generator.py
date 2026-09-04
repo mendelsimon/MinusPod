@@ -847,7 +847,7 @@ class TestMergeAdChapters:
         markers = [{'start': 900.0, 'end': 960.0, 'action_applied': 'keep',
                     'category': 'sponsor'}]
         result = merge_ad_chapters(self._topics(), markers, [], self.DURATION)
-        assert {'startTime': 900, 'title': '[Ad] sponsor'} in result
+        assert {'startTime': 900, 'title': '[mp:sponsor]'} in result
         assert {'startTime': 960, 'title': 'Show'} in result
         assert [ch['startTime'] for ch in result] == sorted(
             ch['startTime'] for ch in result)
@@ -856,7 +856,7 @@ class TestMergeAdChapters:
         markers = [{'start': 900.0, 'end': 930.0, 'action_applied': 'beep',
                     'category': 'cross_promo'}]
         result = merge_ad_chapters(self._topics(), markers, [], self.DURATION)
-        assert {'startTime': 900, 'title': '[Ad] cross_promo'} in result
+        assert {'startTime': 900, 'title': '[mp:cross_promo]'} in result
 
     def test_topic_chapter_inside_ad_span_is_dropped(self):
         # A generated boundary mid-ad would split the break into two chapters,
@@ -865,7 +865,7 @@ class TestMergeAdChapters:
                     'category': 'sponsor'}]
         result = merge_ad_chapters(self._topics(), markers, [], self.DURATION)
         assert 600 not in [ch['startTime'] for ch in result]
-        assert {'startTime': 500, 'title': '[Ad] sponsor'} in result
+        assert {'startTime': 500, 'title': '[mp:sponsor]'} in result
 
     def test_existing_chapter_at_ad_end_is_reused_as_resume(self):
         # A topic chapter already starts at 600, so no duplicate resume.
@@ -881,7 +881,7 @@ class TestMergeAdChapters:
                     'category': 'self_promo'}]
         result = merge_ad_chapters(self._topics(), markers, [], self.DURATION)
         titles = [ch['title'] for ch in result if ch['startTime'] == 601]
-        assert titles == ['[Ad] self_promo']
+        assert titles == ['[mp:self_promo]']
 
     def test_overlapping_markers_merge_into_one_break(self):
         markers = [
@@ -891,15 +891,15 @@ class TestMergeAdChapters:
              'category': 'cross_promo'},
         ]
         result = merge_ad_chapters(self._topics(), markers, [], self.DURATION)
-        ads = [ch for ch in result if ch['title'].startswith('[Ad]')]
-        assert ads == [{'startTime': 900, 'title': '[Ad] sponsor'}]
+        ads = [ch for ch in result if ch['title'].startswith('[mp:')]
+        assert ads == [{'startTime': 900, 'title': '[mp:sponsor]'}]
         assert {'startTime': 1010, 'title': 'Show'} in result
 
     def test_span_running_to_episode_end_needs_no_resume(self):
         markers = [{'start': 3500.0, 'end': 3600.0, 'action_applied': 'keep',
                     'category': 'outro'}]
         result = merge_ad_chapters(self._topics(), markers, [], self.DURATION)
-        assert result[-1] == {'startTime': 3500, 'title': '[Ad] outro'}
+        assert result[-1] == {'startTime': 3500, 'title': '[mp:outro]'}
 
     def test_markers_are_mapped_through_the_applied_cut_list(self):
         # 400s sits after both _MIXED_CUTS spans: 28s shift from the remove
@@ -908,7 +908,7 @@ class TestMergeAdChapters:
                     'category': 'self_promo'}]
         result = merge_ad_chapters([{'startTime': 1, 'title': 'Intro'}],
                                    markers, _MIXED_CUTS, self.DURATION)
-        assert {'startTime': 372, 'title': '[Ad] self_promo'} in result
+        assert {'startTime': 372, 'title': '[mp:self_promo]'} in result
         assert {'startTime': 392, 'title': 'Show'} in result
 
     def test_zero_length_span_is_skipped(self):
@@ -934,7 +934,7 @@ class TestAdChapterConfidenceGate:
         return m
 
     def _ads(self, result):
-        return [ch for ch in result if ch['title'].startswith('[Ad]')]
+        return [ch for ch in result if ch['title'].startswith('[mp:')]
 
     def test_low_confidence_marker_is_not_chapter_marked(self, monkeypatch):
         monkeypatch.setattr('chapters_generator.AD_CHAPTER_MIN_CONFIDENCE', 0.9)
@@ -947,7 +947,7 @@ class TestAdChapterConfidenceGate:
         monkeypatch.setattr('chapters_generator.AD_CHAPTER_MIN_CONFIDENCE', 0.9)
         result = merge_ad_chapters(self.TOPICS, [self._marker(confidence=0.97)],
                                    [], self.DURATION)
-        assert self._ads(result) == [{'startTime': 900, 'title': '[Ad] sponsor'}]
+        assert self._ads(result) == [{'startTime': 900, 'title': '[mp:sponsor]'}]
 
     def test_marker_exactly_at_the_floor_is_marked(self, monkeypatch):
         monkeypatch.setattr('chapters_generator.AD_CHAPTER_MIN_CONFIDENCE', 0.9)
@@ -986,3 +986,31 @@ class TestAdChapterConfidenceGate:
         result = merge_ad_chapters(self.TOPICS, [self._marker(confidence=0.2)],
                                    [], self.DURATION)
         assert all(ch['title'] != 'Show' for ch in result)
+
+
+class TestAdChapterTitleFormat:
+    """The chapter title is the only field Podcasting 2.0 offers, so it has to
+    carry the category a filtering client acts on."""
+
+    def test_default_is_machine_parseable_per_category(self):
+        from config import format_ad_chapter_title
+        assert format_ad_chapter_title('self_promo') == '[mp:self_promo]'
+        assert format_ad_chapter_title('intro') == '[mp:intro]'
+
+    def test_custom_template_is_honoured(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, 'AD_CHAPTER_TITLE_FORMAT', '<<{category}>>')
+        assert config.format_ad_chapter_title('outro') == '<<outro>>'
+
+    def test_template_without_placeholder_is_used_verbatim(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, 'AD_CHAPTER_TITLE_FORMAT', 'Advertisement')
+        assert config.format_ad_chapter_title('sponsor') == 'Advertisement'
+
+    def test_malformed_template_falls_back_rather_than_raising(self, monkeypatch):
+        # A stray brace must not fail chapter generation for the whole episode.
+        import config
+        monkeypatch.setattr(config, 'AD_CHAPTER_TITLE_FORMAT', '[{oops}]')
+        assert config.format_ad_chapter_title('intro') == '[mp:intro]'
+        monkeypatch.setattr(config, 'AD_CHAPTER_TITLE_FORMAT', '[{]')
+        assert config.format_ad_chapter_title('intro') == '[mp:intro]'

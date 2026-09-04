@@ -7,8 +7,9 @@ from config import (
     ModelNotConfiguredError,
     normalize_segment_category, resolve_chapter_geometry,
     resolve_stage_tunables,
-    AD_CHAPTERS_ENABLED, AD_CHAPTER_TITLE_PREFIX, AD_CHAPTER_RESUME_TITLE,
+    AD_CHAPTERS_ENABLED, AD_CHAPTER_RESUME_TITLE,
     AD_CHAPTER_SNAP_SECONDS, AD_CHAPTER_MIN_CONFIDENCE,
+    format_ad_chapter_title,
 )
 from database import Database, DEFAULT_CHAPTER_PROMPT
 from utils.prompt import render_prompt_once, apply_override
@@ -251,7 +252,7 @@ def merge_ad_chapters(output_chapters: list[dict], markers: list[dict] | None,
     for span in spans:
         additions.append({
             'startTime': span['start'],
-            'title': f"{AD_CHAPTER_TITLE_PREFIX} {span['category']}",
+            'title': format_ad_chapter_title(span['category']),
         })
         # The resume chapter is only needed when nothing already starts there.
         # A span running to the end of the episode needs no terminator.

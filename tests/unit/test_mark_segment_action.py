@@ -117,7 +117,7 @@ class TestMarkIsChapterWorthy:
                     'category': 'sponsor', 'confidence': 0.99}]
         result = merge_ad_chapters([{'startTime': 1, 'title': 'Intro'}],
                                    markers, [], 3600.0)
-        assert {'startTime': 900, 'title': '[Ad] sponsor'} in result
+        assert {'startTime': 900, 'title': '[mp:sponsor]'} in result
 
     def test_build_segment_hints_treats_a_mark_as_a_range(self):
         from chapters_generator import build_segment_hints
