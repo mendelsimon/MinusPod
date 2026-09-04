@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 from chapters_generator import (
     ChaptersGenerator, _parse_description_anchors, TOPIC_DETECTION_TEMPERATURE,
-    build_segment_hints,
+    build_segment_hints, merge_ad_chapters,
 )
 
 
@@ -817,3 +817,102 @@ class TestGenerateChaptersHintsWiring:
         )
         # Nothing precedes this cut, so the seam maps to its own start (100s).
         assert '01:40 ad/segment break (sponsor)' in stub.topic_prompt
+
+
+class TestMergeAdChapters:
+    """merge_ad_chapters republishes kept/beeped segments as skippable
+    chapters. Podcasting 2.0 chapters carry no end time, so each ad chapter
+    needs a resume chapter terminating it."""
+
+    DURATION = 3600.0
+
+    def _topics(self):
+        return [{'startTime': 1, 'title': 'Intro'},
+                {'startTime': 600, 'title': 'Main topic'},
+                {'startTime': 1800, 'title': 'Wrap up'}]
+
+    def test_no_markers_returns_input_unchanged(self):
+        topics = self._topics()
+        assert merge_ad_chapters(topics, None, [], self.DURATION) == topics
+        assert merge_ad_chapters(topics, [], [], self.DURATION) == topics
+
+    def test_remove_markers_are_ignored(self):
+        # A removed span is gone from the audio; there is nothing to skip.
+        markers = [{'start': 900.0, 'end': 960.0, 'action_applied': 'remove',
+                    'category': 'sponsor'}]
+        topics = self._topics()
+        assert merge_ad_chapters(topics, markers, [], self.DURATION) == topics
+
+    def test_keep_marker_emits_ad_and_resume_chapters(self):
+        markers = [{'start': 900.0, 'end': 960.0, 'action_applied': 'keep',
+                    'category': 'sponsor'}]
+        result = merge_ad_chapters(self._topics(), markers, [], self.DURATION)
+        assert {'startTime': 900, 'title': '[Ad] sponsor'} in result
+        assert {'startTime': 960, 'title': 'Show'} in result
+        assert [ch['startTime'] for ch in result] == sorted(
+            ch['startTime'] for ch in result)
+
+    def test_beep_marker_also_emits_chapters(self):
+        markers = [{'start': 900.0, 'end': 930.0, 'action_applied': 'beep',
+                    'category': 'cross_promo'}]
+        result = merge_ad_chapters(self._topics(), markers, [], self.DURATION)
+        assert {'startTime': 900, 'title': '[Ad] cross_promo'} in result
+
+    def test_topic_chapter_inside_ad_span_is_dropped(self):
+        # A generated boundary mid-ad would split the break into two chapters,
+        # and a keyword filter would only skip the first.
+        markers = [{'start': 500.0, 'end': 700.0, 'action_applied': 'keep',
+                    'category': 'sponsor'}]
+        result = merge_ad_chapters(self._topics(), markers, [], self.DURATION)
+        assert 600 not in [ch['startTime'] for ch in result]
+        assert {'startTime': 500, 'title': '[Ad] sponsor'} in result
+
+    def test_existing_chapter_at_ad_end_is_reused_as_resume(self):
+        # A topic chapter already starts at 600, so no duplicate resume.
+        markers = [{'start': 400.0, 'end': 600.0, 'action_applied': 'keep',
+                    'category': 'sponsor'}]
+        result = merge_ad_chapters(self._topics(), markers, [], self.DURATION)
+        at_600 = [ch for ch in result if ch['startTime'] == 600]
+        assert at_600 == [{'startTime': 600, 'title': 'Main topic'}]
+
+    def test_ad_chapter_wins_over_snapped_topic_chapter_at_its_start(self):
+        # A topic chapter one second off the ad start must not mask the break.
+        markers = [{'start': 601.0, 'end': 700.0, 'action_applied': 'keep',
+                    'category': 'self_promo'}]
+        result = merge_ad_chapters(self._topics(), markers, [], self.DURATION)
+        titles = [ch['title'] for ch in result if ch['startTime'] == 601]
+        assert titles == ['[Ad] self_promo']
+
+    def test_overlapping_markers_merge_into_one_break(self):
+        markers = [
+            {'start': 900.0, 'end': 960.0, 'action_applied': 'keep',
+             'category': 'sponsor'},
+            {'start': 950.0, 'end': 1010.0, 'action_applied': 'keep',
+             'category': 'cross_promo'},
+        ]
+        result = merge_ad_chapters(self._topics(), markers, [], self.DURATION)
+        ads = [ch for ch in result if ch['title'].startswith('[Ad]')]
+        assert ads == [{'startTime': 900, 'title': '[Ad] sponsor'}]
+        assert {'startTime': 1010, 'title': 'Show'} in result
+
+    def test_span_running_to_episode_end_needs_no_resume(self):
+        markers = [{'start': 3500.0, 'end': 3600.0, 'action_applied': 'keep',
+                    'category': 'outro'}]
+        result = merge_ad_chapters(self._topics(), markers, [], self.DURATION)
+        assert result[-1] == {'startTime': 3500, 'title': '[Ad] outro'}
+
+    def test_markers_are_mapped_through_the_applied_cut_list(self):
+        # 400s sits after both _MIXED_CUTS spans: 28s shift from the remove
+        # span, none from the beep. Mirrors TestBuildSegmentHints.
+        markers = [{'start': 400.0, 'end': 420.0, 'action_applied': 'keep',
+                    'category': 'self_promo'}]
+        result = merge_ad_chapters([{'startTime': 1, 'title': 'Intro'}],
+                                   markers, _MIXED_CUTS, self.DURATION)
+        assert {'startTime': 372, 'title': '[Ad] self_promo'} in result
+        assert {'startTime': 392, 'title': 'Show'} in result
+
+    def test_zero_length_span_is_skipped(self):
+        markers = [{'start': 900.0, 'end': 900.0, 'action_applied': 'keep',
+                    'category': 'sponsor'}]
+        topics = self._topics()
+        assert merge_ad_chapters(topics, markers, [], self.DURATION) == topics

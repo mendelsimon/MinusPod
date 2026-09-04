@@ -844,6 +844,31 @@ VALID_CHAPTERS_MODES = frozenset({CHAPTERS_MODE_AUTO, CHAPTERS_MODE_GENERATE, CH
 # worth preserving over a generated chapter set.
 MIN_PRESERVED_CHAPTERS = 2
 
+# ============================================================
+# Ad chapters (skip markers for the podcast player)
+# ============================================================
+# Segments left in the audio (action 'keep' or 'beep') can also be published
+# as their own chapters, so a chapter-aware player can jump the break instead
+# of the listener seeking through it. Off by default: it changes the served
+# chapter list, and only helps players that act on chapter titles.
+#
+# Podcasting 2.0 chapters carry no end time -- a chapter runs until the next
+# one starts -- so each ad chapter is emitted with a companion "resume"
+# chapter at the ad's end. Without that terminator the ad chapter would
+# swallow the rest of the episode.
+AD_CHAPTERS_ENABLED = os.environ.get(
+    'AD_CHAPTERS_ENABLED', 'false').strip().lower() == 'true'
+# Title prefix a player's keyword filter matches on (Podcast Addict's chapter
+# filter, or a patched AntennaPod build). Kept short and bracketed so it reads
+# cleanly in a chapter list.
+AD_CHAPTER_TITLE_PREFIX = os.environ.get('AD_CHAPTER_TITLE_PREFIX', '[Ad]').strip() or '[Ad]'
+# Title for the resume chapter that terminates an ad chapter, used only when
+# no generated chapter already starts there.
+AD_CHAPTER_RESUME_TITLE = os.environ.get('AD_CHAPTER_RESUME_TITLE', 'Show').strip() or 'Show'
+# A generated chapter starting within this many seconds of an ad boundary is
+# reused as that boundary instead of inserting a near-duplicate next to it.
+AD_CHAPTER_SNAP_SECONDS = 2.0
+
 
 def resolve_chapters_mode(podcast_row):
     """Effective per-feed chapters mode from an already-fetched podcasts row.

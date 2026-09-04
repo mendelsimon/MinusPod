@@ -7,6 +7,8 @@ from config import (
     ModelNotConfiguredError,
     normalize_segment_category, resolve_chapter_geometry,
     resolve_stage_tunables,
+    AD_CHAPTERS_ENABLED, AD_CHAPTER_TITLE_PREFIX, AD_CHAPTER_RESUME_TITLE,
+    AD_CHAPTER_SNAP_SECONDS,
 )
 from database import Database, DEFAULT_CHAPTER_PROMPT
 from utils.prompt import render_prompt_once, apply_override
@@ -162,6 +164,96 @@ def _format_hints_block(hints: list[dict]) -> str:
         "there. Do not output a boundary just because it is listed here.\n\n"
         f"Detected ad/segment positions:\n{hint_lines}"
     )
+
+
+def merge_ad_chapters(output_chapters: list[dict], markers: list[dict] | None,
+                      cuts: list[dict] | None, episode_duration: float,
+                      replacement_duration: float = 0.0) -> list[dict]:
+    """Publish segments that stayed in the audio as their own chapters.
+
+    A 'remove' marker leaves nothing to skip, so only 'keep' and 'beep'
+    markers qualify -- that time still exists in the served file. Each one
+    becomes an ad chapter at its start plus a resume chapter at its end,
+    because Podcasting 2.0 chapters have no end time: a chapter runs until
+    the next one starts, so without the terminator the ad chapter would
+    swallow the rest of the episode.
+
+    Generated topic chapters that fall strictly inside an ad span are
+    dropped; they would split the span into pieces a player's keyword
+    filter no longer matches as one break. A generated chapter within
+    AD_CHAPTER_SNAP_SECONDS of a boundary is reused as that boundary
+    instead of having a near-duplicate inserted beside it.
+
+    Returns the merged list; the input is not modified. Timestamps use the
+    same integer-second, minimum-1 convention as generate_chapters' output.
+    """
+    if not markers:
+        return output_chapters
+
+    spans = []
+    for marker in markers:
+        # 'remove' cut the span out; there is nothing left to skip past.
+        if marker.get('action_applied') not in ('keep', 'beep'):
+            continue
+        start, end = marker.get('start'), marker.get('end')
+        if start is None or end is None:
+            continue
+        mapped_start = adjust_timestamp(start, cuts or [], replacement_duration)
+        mapped_end = adjust_timestamp(end, cuts or [], replacement_duration)
+        start_s = max(1, int(round(mapped_start)))
+        end_s = max(1, int(round(mapped_end)))
+        if end_s <= start_s:
+            continue
+        category = normalize_segment_category(marker.get('category'))
+        spans.append({'start': start_s, 'end': end_s, 'category': category})
+
+    if not spans:
+        return output_chapters
+
+    spans.sort(key=lambda sp: sp['start'])
+    # Overlapping markers would emit interleaved ad/resume pairs that read as
+    # nested chapters. Merge them; the first span's category names the break.
+    merged = [spans[0]]
+    for span in spans[1:]:
+        if span['start'] <= merged[-1]['end']:
+            merged[-1]['end'] = max(merged[-1]['end'], span['end'])
+        else:
+            merged.append(span)
+    spans = merged
+
+    kept = [
+        ch for ch in output_chapters
+        if not any(sp['start'] < ch['startTime'] < sp['end'] for sp in spans)
+    ]
+
+    # Snapped against the pre-removal list on purpose, and bound to its own
+    # name so the rebinding of `kept` below cannot change what this sees.
+    snap_candidates = list(kept)
+
+    def _snaps_to(time_s: int) -> bool:
+        return any(abs(ch['startTime'] - time_s) <= AD_CHAPTER_SNAP_SECONDS
+                   for ch in snap_candidates)
+
+    additions = []
+    for span in spans:
+        additions.append({
+            'startTime': span['start'],
+            'title': f"{AD_CHAPTER_TITLE_PREFIX} {span['category']}",
+        })
+        # The resume chapter is only needed when nothing already starts there.
+        # A span running to the end of the episode needs no terminator.
+        if span['end'] < int(round(episode_duration)) and not _snaps_to(span['end']):
+            additions.append({
+                'startTime': span['end'],
+                'title': AD_CHAPTER_RESUME_TITLE,
+            })
+
+    ad_starts = {span['start'] for span in spans}
+    # An ad chapter always wins its own start over a generated chapter that
+    # merely snapped near it, so the keyword filter sees the break.
+    kept = [ch for ch in kept if ch['startTime'] not in ad_starts]
+
+    return sorted(kept + additions, key=lambda ch: ch['startTime'])
 
 
 def get_chapters_model() -> str:
@@ -861,6 +953,11 @@ class ChaptersGenerator:
                     f"[{episode_id}] chapter generation degraded ({reason}); "
                     f"some chapters may have generic titles or missing boundaries"
                 )
+
+        if AD_CHAPTERS_ENABLED:
+            output_chapters = merge_ad_chapters(
+                output_chapters, segment_markers, hint_cuts,
+                episode_duration, replacement_duration)
 
         return {
             'version': '1.2.0',
