@@ -34,14 +34,15 @@ export const SEGMENT_CATEGORY_DESCRIPTIONS: Record<SegmentCategory, string> = {
   recap: 'Previews and coming-up bumpers',
 };
 
-export type SegmentAction = 'remove' | 'beep' | 'keep';
+export type SegmentAction = 'remove' | 'beep' | 'keep' | 'mark';
 
-export const SEGMENT_ACTIONS: SegmentAction[] = ['remove', 'beep', 'keep'];
+export const SEGMENT_ACTIONS: SegmentAction[] = ['remove', 'beep', 'keep', 'mark'];
 
 export const SEGMENT_ACTION_LABELS: Record<SegmentAction, string> = {
   remove: 'Remove',
   beep: 'Beep',
   keep: 'Keep',
+  mark: 'Mark',
 };
 
 export const DEFAULT_SEGMENT_ACTION: SegmentAction = 'remove';

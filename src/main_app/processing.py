@@ -1376,23 +1376,32 @@ def _apply_late_keep_safety_net(ads_to_remove, all_ads_with_validation, actions_
 
 
 def _partition_cut_actions(ads_to_remove, actions_map):
-    """Stamp each cut-list marker with its resolved remove/beep action.
+    """Stamp each cut-list marker with its resolved remove/beep/mark action.
 
     'keep' is already handled by _partition_keep_ads and
-    _apply_late_keep_safety_net; this only distinguishes remove from beep.
-    A marker with no category key (pass-2 verification ads) normalizes to
-    'sponsor'. A 'keep' resolution reaching here (unreachable for a pass-1
+    _apply_late_keep_safety_net; this distinguishes remove from beep from
+    mark. A marker with no category key (pass-2 verification ads) normalizes
+    to 'sponsor'. A 'keep' resolution reaching here (unreachable for a pass-1
     marker) falls back to DEFAULT_SEGMENT_ACTION rather than being pulled
     from the list this late, so the segment still cuts.
+
+    'mark' deliberately rides the cut list the whole way: it has already
+    cleared the validator, the reviewer, any hold, and the min-cut-confidence
+    gate exactly as a 'remove' would, and only diverges at the ffmpeg step
+    (AudioProcessor.remove_ads drops it from the segment list). That is the
+    difference from 'keep', which is pulled before any of those guards run.
+    It is stamped was_cut=False here because no audio is edited for it.
 
     Mutates ad['action_applied'] in place; returns ads_to_remove for chaining.
     """
     for ad in ads_to_remove:
         category = normalize_segment_category(ad.get('category'))
         action = actions_map.get(category, DEFAULT_SEGMENT_ACTION)
-        if action not in ('remove', 'beep'):
+        if action not in ('remove', 'beep', 'mark'):
             action = DEFAULT_SEGMENT_ACTION
         ad['action_applied'] = action
+        if action == 'mark':
+            ad['was_cut'] = False
     return ads_to_remove
 
 

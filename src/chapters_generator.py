@@ -116,7 +116,7 @@ def build_segment_hints(markers: list[dict] | None, cuts: list[dict] | None,
     hints: list[dict] = []
     for marker in markers:
         action = marker.get('action_applied')
-        if action not in ('remove', 'beep', 'keep'):
+        if action not in ('remove', 'beep', 'keep', 'mark'):
             continue
         start = marker.get('start')
         end = marker.get('end')
@@ -198,7 +198,7 @@ def merge_ad_chapters(output_chapters: list[dict], markers: list[dict] | None,
     spans = []
     for marker in markers:
         # 'remove' cut the span out; there is nothing left to skip past.
-        if marker.get('action_applied') not in ('keep', 'beep'):
+        if marker.get('action_applied') not in ('keep', 'beep', 'mark'):
             continue
         start, end = marker.get('start'), marker.get('end')
         if start is None or end is None:

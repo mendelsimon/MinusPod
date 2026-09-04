@@ -62,7 +62,7 @@ HOLD_REASON_LARGE_VAD_GAP = 'large_vad_gap_extension'
 # resolution defaults (see normalize_segment_category).
 SEGMENT_CATEGORIES = ('sponsor', 'cross_promo', 'self_promo', 'interaction',
                       'intro', 'outro', 'recap')
-SEGMENT_ACTIONS = ('remove', 'beep', 'keep')
+SEGMENT_ACTIONS = ('remove', 'beep', 'keep', 'mark')
 DEFAULT_SEGMENT_ACTION = 'remove'
 
 
@@ -256,7 +256,7 @@ def count_not_cut(markers) -> int:
     it must never inflate the notification-facing not-cut/miss count."""
     return sum(1 for m in markers
                if not m.get('was_cut', True) and not is_pending_review(m)
-               and m.get('action_applied') != 'keep')
+               and m.get('action_applied') not in ('keep', 'mark'))
 
 
 def title_matches_skip_patterns(title, patterns_json):

@@ -386,7 +386,16 @@ class AudioProcessor:
 
         Returns the applied cut list (see compute_applied_cuts) on success --
         empty when nothing was cut -- or None on failure.
+
+        'mark' segments are dropped here rather than upstream: they travel the
+        full cut path so they inherit the validator, reviewer, hold and
+        confidence gates, and diverge only at the audio edit. Dropping them
+        before compute_applied_cuts also keeps them out of the applied-cut
+        list, so downstream timestamp mapping never shifts for a span whose
+        audio is still present.
         """
+        ad_segments = [seg for seg in ad_segments
+                       if seg.get('action_applied') != 'mark']
         if not ad_segments:
             # No ads to remove, just copy file
             logger.info("No ads to remove, copying original file")

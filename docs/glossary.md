@@ -78,6 +78,8 @@ Every term the app uses, in plain words, with a link to the part of the docs tha
 
 ## K
 
+**Mark action** - A per-category segment action that leaves a detected span in the audio, like [[keep]], but publishes it as a chapter for a player to skip. It keeps every guard a cut gets: a marked span passes the validator, the reviewer, hold rules and the min-cut-confidence gate before it is stamped, because a marker something downstream acts on can lose content just as a cut can. Needs `AD_CHAPTERS_ENABLED` for the chapters to be served. [How It Works > Segment Categories](how-it-works.md#segment-categories)
+
 **Keep action** - A per-category segment action that leaves a detected span in the audio untouched. A kept marker bypasses validator hold rules and reviewer boundary checks, is dropped instead of re-flagged if pass-2 verification finds it again, and never creates a correction or false-positive text, though it still teaches the pattern learner its category. [How It Works > Segment Categories](how-it-works.md#segment-categories)
 
 ## L

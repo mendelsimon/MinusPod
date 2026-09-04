@@ -14,7 +14,7 @@ interface SegmentActionToggleProps {
   muted?: boolean;
 }
 
-// Three-way remove/beep/keep control shared by the global and per-feed
+// Remove/beep/keep/mark control shared by the global and per-feed
 // segment-action matrices. Implements the standard ARIA radiogroup keyboard
 // pattern: roving tabindex (one tab stop, only the selected option is in tab
 // order), Left/Up and Right/Down move with wraparound, Home/End jump to
