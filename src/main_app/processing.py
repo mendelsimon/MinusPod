@@ -4769,11 +4769,13 @@ def process_episode(slug: str, episode_id: str, episode_url: str,
             pass1_held_markers = [
                 m for m in all_ads_with_validation if is_pending_review(m)
             ]
-            # Kept markers (original coords): a verification finding
-            # overlapping one must never be cut, held, or logged as a miss.
+            # Kept and marked markers (original coords): a verification
+            # finding overlapping one must never be cut or logged as a miss.
+            # Both are barriers, but they mean different things downstream --
+            # see _reconcile_verification_against_kept.
             pass1_kept_markers = [
                 m for m in all_ads_with_validation
-                if m.get('action_applied') == 'keep'
+                if m.get('action_applied') in ('keep', 'mark')
             ]
             if skip_second_pass and not skip_detection:
                 audio_logger.info(

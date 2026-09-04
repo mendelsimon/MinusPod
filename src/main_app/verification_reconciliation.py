@@ -155,6 +155,13 @@ def _exclude_kept_spans_from_verification(verification_ads_processed,
     disagreement, so each one is stamped held_for_review and returned
     separately for the pending-review queue.
 
+    A marked span is the opposite case and is dropped instead. It is already
+    published as an ad marker, so pass 2 re-detecting it is agreement rather
+    than contradiction -- and it will re-detect it, because with nothing cut
+    the audio pass 2 reads still contains the ad. There is nothing for a
+    human to adjudicate, so holding it would fill the queue with duplicates
+    of markers that are already correct.
+
     Runs before _gate_verification_ads_by_confidence so none of its
     autocut/hold/log branches ever see a finding inside a kept span.
     pass1_kept_markers (original coordinates) are mapped onto the processed
@@ -167,7 +174,7 @@ def _exclude_kept_spans_from_verification(verification_ads_processed,
     if not pass1_kept_markers:
         return verification_ads_processed, verification_ads_original, []
     kept_spans_processed = [
-        (marker['start'], marker['end'])
+        (marker['start'], marker['end'], marker.get('action_applied'))
         for marker in _pass2_keep_barriers_processed(
             pass1_kept_markers, pass1_cuts)
     ]
@@ -179,6 +186,18 @@ def _exclude_kept_spans_from_verification(verification_ads_processed,
             (span for span in kept_spans_processed
              if ranges_overlap(ad['start'], ad['end'], span[0], span[1])),
             None)
+        if overlap is not None and overlap[2] == 'mark':
+            # The span is already published as an ad marker. Pass 2 finding
+            # it again is agreement, not a contradiction: there is nothing
+            # for a human to adjudicate and nothing new to record, so drop
+            # it rather than filling the review queue with duplicates. A
+            # kept span is the opposite case and falls through below.
+            audio_logger.info(
+                f"Pass-2 finding {ad['start']:.1f}s-{ad['end']:.1f}s "
+                f"(processed) re-detects marked span {overlap[0]:.1f}s-"
+                f"{overlap[1]:.1f}s; already marked, dropping duplicate"
+            )
+            continue
         if overlap is not None:
             # This runs before validation, so screen against the user's
             # false-positive rejections here: a span the user already ruled
