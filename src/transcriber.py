@@ -349,13 +349,30 @@ def _unlink_quiet(path):
             pass
 
 
+def _positive_int_env(name: str, default: int) -> int:
+    """Read a >=1 integer from the environment, falling back on anything
+    unparseable or out of range. Bad values must not stall the pipeline."""
+    try:
+        return max(1, int(os.environ[name]))
+    except (KeyError, ValueError, TypeError):
+        return default
+
+
 # Chunk extraction (ffmpeg with the normalization filter chain) is CPU-bound
 # and takes longer than GPU inference on a chunk, so it runs ahead of the GPU
 # in a small pool: while chunk N transcribes, chunks N+1.. extract.
-EXTRACT_PREFETCH_WORKERS = 2
+#
+# That overlap only pays off when extraction and inference use different
+# resources. On a CPU-only host there is no GPU to hide behind, so extra
+# workers contend for the same cores as the inference they are feeding --
+# on a 2-core box, two workers plus a 2-thread Whisper is four CPU-bound
+# threads on two cores. Set EXTRACT_PREFETCH_WORKERS=1 there to keep the
+# useful half of the pipeline (extract chunk N+1 while chunk N transcribes)
+# without the self-competition.
+EXTRACT_PREFETCH_WORKERS = _positive_int_env('EXTRACT_PREFETCH_WORKERS', 2)
 # How many chunks past the current one to keep in flight. Bounds /tmp usage:
 # each extracted chunk is a 16kHz mono WAV, ~2MB per audio minute.
-EXTRACT_PREFETCH_AHEAD = 2
+EXTRACT_PREFETCH_AHEAD = _positive_int_env('EXTRACT_PREFETCH_AHEAD', 2)
 
 
 def _chunk_bounds_ahead(start, chunk_duration, duration, overlap, count):
