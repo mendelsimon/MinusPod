@@ -384,6 +384,11 @@ def _drop_uncovered_pass2_ads(slug, episode_id, v_ads_to_cut, v_ads_for_ui,
     Mutates v_ads_to_cut / v_ads_for_ui in place so the count and the UI list
     only claim cuts that exist in the audio. Merged-away ads still count: a
     merged span covers its members.
+
+    'mark' markers are exempt: they are absent from recut_applied by design
+    (AudioProcessor.remove_ads drops them), so the coverage test would strip
+    every one of them out of the UI list and they would never reach chapter
+    generation. Their audio is intact, which is the whole point.
     """
     twin = {id(p): o for p, o in zip(verification_ads_processed,
                                      verification_ads_original, strict=True)}
@@ -394,7 +399,8 @@ def _drop_uncovered_pass2_ads(slug, episode_id, v_ads_to_cut, v_ads_for_ui,
     twin.update({id(p): o for p, o in zip(v_ads_to_cut, v_ads_for_ui,
                                           strict=False)})
     for ad in [a for a in v_ads_to_cut
-               if not _covered_by_cuts(a, recut_applied, total_duration)]:
+               if a.get('action_applied') != 'mark'
+               and not _covered_by_cuts(a, recut_applied, total_duration)]:
         v_ads_to_cut.remove(ad)
         ad['was_cut'] = False
         ui_ad = twin.get(id(ad))

@@ -1596,18 +1596,27 @@ def _exclude_category_kept_spans(processed_ads, original_ads,
 
 
 def _stamp_pass2_cut_actions(processed_cuts, original_cuts, actions_map):
-    """Stamp remove/beep only after pass-2 candidates become actual cuts.
+    """Stamp remove/beep/mark only after pass-2 candidates become actual cuts.
 
     Validation and review may still divert a candidate into a hold or reject
     it. Delaying the stamp keeps those uncut markers from advertising a cut
     seam or replacement range to downstream chapter generation.
+
+    'mark' is honoured here for the same reason as in _partition_cut_actions:
+    by this point the candidate has cleared validation, the pass-2 reviewer
+    and the confidence gate exactly as a 'remove' would, and diverges only at
+    the ffmpeg step. Folding it into DEFAULT_SEGMENT_ACTION instead would
+    re-cut the pass-1 output for a category the operator asked to keep --
+    the one path where a marked span could still lose audio.
     """
     for marker in [*processed_cuts, *original_cuts]:
         category = normalize_segment_category(marker.get('category'))
         action = actions_map.get(category, DEFAULT_SEGMENT_ACTION)
-        if action not in ('remove', 'beep'):
+        if action not in ('remove', 'beep', 'mark'):
             action = DEFAULT_SEGMENT_ACTION
         marker['action_applied'] = action
+        if action == 'mark':
+            marker['was_cut'] = False
 
 
 def _reconcile_pass2_cut_actions(processed_cuts, original_cuts, pass1_cuts):
@@ -2845,10 +2854,16 @@ def _run_verification_pass(ctx, processed_path, pass1_cuts,
                 v_ads_to_cut, v_ads_for_ui = _reconcile_pass2_cut_actions(
                     v_ads_to_cut, v_ads_for_ui, pass1_cuts)
 
-                if v_ads_to_cut:
+                # Marks ride the pass-2 cut list so they reach the UI and
+                # chapter generation, but they edit no audio. With nothing
+                # else left the recut is a pure file copy, so skip it: the
+                # pass-1 output already is the correct served file.
+                v_ads_to_recut = [ad for ad in v_ads_to_cut
+                                  if ad.get('action_applied') != 'mark']
+                if v_ads_to_recut:
                     audio_logger.info(
                         f"[{slug}:{episode_id}] Re-cutting pass 1 output for "
-                        f"{len(v_ads_to_cut)} verification ad(s)")
+                        f"{len(v_ads_to_recut)} verification ad(s)")
                     # Probed above, before the recut deletes the pre-recut
                     # file: the coverage check needs the bounds the recut
                     # clamped to.
@@ -2864,7 +2879,11 @@ def _run_verification_pass(ctx, processed_path, pass1_cuts,
                             recut_applied, verification_ads_processed,
                             verification_ads_original, pre_recut_duration,
                         )
-                        verification_count = len(v_ads_to_cut)
+                        # Marks are not removals; ads_removed_secondpass
+                        # must only count spans the audio actually lost.
+                        verification_count = sum(
+                            1 for ad in v_ads_to_cut
+                            if ad.get('action_applied') != 'mark')
                         v_cuts_for_assets = _pass2_cuts_in_original(
                             recut_applied, pass1_cuts)
                     else:
